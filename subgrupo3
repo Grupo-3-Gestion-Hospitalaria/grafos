@@ -1,0 +1,132 @@
+from collections import defaultdict
+from dataclasses import dataclass
+from enum import Enum
+import heapq
+from typing import Dict, List, Optional, Set, Tuple
+
+
+class Especialidad(Enum):
+    CARDIOLOGIA = "cardiologia"
+    PEDIATRIA = "pediatria"
+    TRAUMATOLOGIA = "traumatologia"
+    NEUROLOGIA = "neurologia"
+    GENERAL = "general"
+
+
+@dataclass
+class Paciente:
+    id_paciente: str
+    prioridad: int  # 1 (más urgente) a 5 (menos urgente)
+    especialidad_necesaria: Especialidad
+
+
+class SistemaAsignacionMedicos:
+    def __init__(self) -> None:
+        self._grafo: Dict[str, Dict[str, float]] = defaultdict(dict)
+        self._especialidades: Dict[str, Especialidad] = {}
+        self._historial: List[Tuple[str, str]] = []
+        self._medicos_disponibles: Set[str] = set()
+
+    def agregar_medico(self, id_medico: str, especialidad: Especialidad) -> None:
+        """Registra un nuevo médico en el sistema.
+        
+        Args:
+            id_medico: Identificador único del médico
+            especialidad: Especialidad médica (enum Especialidad)
+        
+        Raises:
+            ValueError: Si el médico ya está registrado
+        """
+        if id_medico in self._especialidades:
+            raise ValueError(f"El médico {id_medico} ya está registrado")
+            
+        self._grafo[id_medico] = {}
+        self._especialidades[id_medico] = especialidad
+        self._medicos_disponibles.add(id_medico)
+
+    def agregar_paciente(self, paciente: Paciente) -> Optional[str]:
+        """Asigna un paciente al médico más adecuado disponible.
+        
+        Args:
+            paciente: Datos del paciente (objeto Paciente)
+            
+        Returns:
+            id del médico asignado o None si no hay médicos disponibles
+        """
+        if not self._medicos_disponibles:
+            return None
+
+        medico_asignado = self._encontrar_medico_adecuado(paciente.especialidad_necesaria)
+        
+        if medico_asignado:
+            self._asignar_paciente_a_medico(medico_asignado, paciente)
+            return medico_asignado
+        
+        return None
+
+    def _encontrar_medico_adecuado(self, especialidad: Especialidad) -> Optional[str]:
+        """Encuentra el médico más adecuado para una especialidad dada."""
+        heap = []
+        
+        for medico in self._medicos_disponibles:
+            prioridad = (0 if self._especialidades[medico] == especialidad else 1, 
+                         len(self._grafo[medico]))  # Prioriza menos cargados
+            heapq.heappush(heap, (prioridad, medico))
+        
+        return heap[0][1] if heap else None
+
+    def _asignar_paciente_a_medico(self, id_medico: str, paciente: Paciente) -> None:
+        """Realiza la asignación de un paciente a un médico específico."""
+        peso = 1 / (paciente.prioridad + 0.1)  # +0.1 para evitar división por cero
+        self._grafo[id_medico][paciente.id_paciente] = peso
+        self._historial.append((id_medico, paciente.id_paciente))
+        self._medicos_disponibles.remove(id_medico)
+
+    def liberar_medico(self, id_medico: str) -> None:
+        """Libera un médico para que pueda atender nuevos pacientes.
+        
+        Args:
+            id_medico: Identificador del médico a liberar
+            
+        Raises:
+            KeyError: Si el médico no existe
+        """
+        if id_medico not in self._especialidades:
+            raise KeyError(f"Médico {id_medico} no encontrado")
+            
+        self._medicos_disponibles.add(id_medico)
+
+    def obtener_pacientes_de_medico(self, id_medico: str) -> List[str]:
+        """Obtiene la lista de pacientes asignados a un médico.
+        
+        Args:
+            id_medico: Identificador del médico
+            
+        Returns:
+            Lista de IDs de pacientes
+        """
+        return list(self._grafo.get(id_medico, {}).keys())
+
+    def obtener_medico_de_paciente(self, id_paciente: str) -> Optional[str]:
+        """Busca qué médico tiene asignado un paciente.
+        
+        Args:
+            id_paciente: Identificador del paciente
+            
+        Returns:
+            ID del médico o None si no está asignado
+        """
+        for medico, pacientes in self._grafo.items():
+            if id_paciente in pacientes:
+                return medico
+        return None
+
+    def deshacer_ultima_asignacion(self) -> None:
+        """Deshace la última asignación realizada."""
+        if not self._historial:
+            return
+            
+        medico, paciente = self._historial.pop()
+        if medico in self._grafo and paciente in self._grafo[medico]:
+            del self._grafo[medico][paciente]
+            self._medicos_disponibles.add(medico)
